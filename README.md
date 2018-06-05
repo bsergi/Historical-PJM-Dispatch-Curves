@@ -7,7 +7,7 @@ Currently the model only works for hours/dates in 2016 using natural gas method 
 
 Generator dispatch curves for each hour are saved to "Output plots" (saving option controlled by 'savePlots' boolean). A dataframe of the marginal generator in each hour from the model run is saved to an excel file "Marginal generators" + runName (where runName is a string specified at the beginning on __main__.py) in "Output data". 
 
-Additional analysis of the results is supported in Analyis.py. 
+Additional analysis of the results is supported in Analysis.py. 
 
 Further documentation of the model mechanics and methods forthcoming. 
 
