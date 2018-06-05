@@ -1,5 +1,5 @@
 # Historical-PJM-Dispatch-Curves
-Code for a simple model that attempts to recreate historical dispatch curves in PJM using data from EPA and PJM in order to estimate marginal emissions factors. 
+Code for a simple model that attempts to recreate historical dispatch curves in PJM using data from EPA and PJM in order to estimate marginal emissions factors. Scripts are formatted to run with Python 3.6. 
 
 Run model from the __main__.py script. User will be prompted to enter a start and end date, as well as start and ending hours; the model will build dispatch curves and calculate marginal generators for each hour in that range. The user will also be prompted to choose method for calculating natural gas prices. 
 
