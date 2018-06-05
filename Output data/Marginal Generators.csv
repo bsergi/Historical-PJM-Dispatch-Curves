@@ -1,0 +1,2 @@
+,Hour,Day,Month,Year,System load (MW),ORIS ID,Fuel,Marginal Cost ($/MWh),CO2 emissions rate (tons/MWh),NOx emisisons rate (tons/MWh),SO2 emissions rate (tons/MWh)
+0,14,1,1,2016,83903.716,55183,GAS,18.283601593625495,0.5810673314615505,0.0001085278469002118,3.2327798154500527e-06
