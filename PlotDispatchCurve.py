@@ -22,65 +22,75 @@ from MarginalCostFunction import *
 
 ## Dispatch curve plot
 
-def curPlotting(dispatch, marginalResult, show=False):
+def getPlotInfo(dispatch, marginalResult):
+    
+    # colors for plotting
+    fuelColors = pd.DataFrame(data={'Fuel': ['WIND', 'SOLAR', 'HYDRO', 'NUCLEAR' , 'COAL',  'GAS', 'OIL', 'OTHER'],
+                                    'Color': ['#00BFFF', '#FFD700', '#4169E1', 'red', 'brown',  'orange', 'black', '#00CD00']})
+                                    
+    dispatch = pd.merge(dispatch, fuelColors, how="left", on="Fuel", sort=False)
+    dispatch['Color'].where(~dispatch['Color'].isna(), '#00CD00', inplace=True)          # remaining NAs classified as 'OTHER'
     
     demand = marginalResult['System load (MW)']
     cost = marginalResult['Marginal Cost ($/MWh)']
     
-    fuelColors = {'WIND':'blue',  'SOLAR':'yellow', 'BIOMASS':'green', 
-                  'COAL':'brown', 'OIL':'black', 'GAS':'orange',
-                  'HYDRO':'magenta', 'NUCLEAR': 'red', 'OTHER': 'purple'}
-                
-    colors = []
-    plantCapacity = []
-    capacity = []
-    operatingCosts = []
+    # left coordinate
+    capacity = dispatch['Running Capacity (MW)'] - dispatch['Plant nameplate capacity (MW)']
+    capacity = capacity.tolist()
     
-    for i in range(len(dispatch)):
-        currentPlant = dispatch.loc[i]['Plant nameplate capacity (MW)']
-        
-        # left coordinate for plot
-        capacity = capacity + [dispatch.loc[i]['Running Capacity (MW)'] - currentPlant]
-        plantCapacity = plantCapacity + [currentPlant] 
+    # right coordinate
+    plantCapacity = dispatch['Running Capacity (MW)'].tolist()
+    
+    # height (costs)
+    operatingCosts = dispatch['Marginal Cost ($/MWh)']
+    operatingCosts = operatingCosts.where(operatingCosts != 0, 2).tolist()    # add small cost to zero plants so they are plotted
+    
+    # plot colors
+    colors = dispatch['Color'].tolist()
+    
+    return fuelColors, demand, cost, capacity, plantCapacity, operatingCosts, colors
+    
+def plotDipsatchCurve(step, ax1, fuelColors, demand, cost, capacity, plantCapacity, operatingCosts, colors, marker=None):
 
+    if step:
+        operatingCosts2 = [0]
+        operatingCosts2.extend(operatingCosts)
+        operatingCosts2.pop()
         
-        currentCost = dispatch.loc[i]['Marginal Cost ($/MWh)']
-        # assign small cost to renewables and nuclear so they are plotted
-        if currentCost == 0:
-            operatingCosts = operatingCosts + [1]
-        else:
-            operatingCosts = operatingCosts + [currentCost]
+        ax1.hlines(y=operatingCosts, xmin=capacity, xmax=plantCapacity, color = colors, label='Supply Curve', linewidth=1)
+        ax1.vlines(x=capacity, ymin=operatingCosts2, ymax=operatingCosts, color = colors, label='Supply Curve',linewidth=1)
         
-        # fuel type of generator
-        genType = dispatch.loc[i]['Plant primary coal/oil/gas/ other fossil fuel category']
-        
-        if genType in fuelColors:
-            colors = colors + [fuelColors[genType]]
-        else:
-            colors = colors + ["purple"]
-        
-    supplyCurve = plt.figure(num="Figure 1")
-    ax1 = supplyCurve.add_subplot(1,1,1)
-    
-    #ax1.scatter(capacity,operatingCosts,color=colors,label='Supply Curve',linewidth=2)
-    ax1.bar(x=capacity, height=operatingCosts, width = plantCapacity, color=colors, 
-            align="edge", linewidth=0)
-    
+        if marker != None:
+            mids = [(left + right)/2 for left, right in zip(capacity, plantCapacity)]
+            ax1.scatter(mids,operatingCosts, color=colors,label='Supply Curve',marker=marker, s=5)
+
+    else:
+        ax1.bar(x=capacity, height=operatingCosts, width = plantCapacity, color=colors, 
+                align="edge", linewidth=0)
     
     # lines for load and marginal cost
     ax1.plot([demand,demand],[0,cost],'k--')
     ax1.plot([0,demand],[cost,cost],'k--')
     
-    ax1.set_xlim((0,max(capacity)*1.01))
-    ax1.set_ylim((0,max(operatingCosts)*1.01))
+    ax1.set_xlim((0,max(plantCapacity)*1.01))
+    # ax1.set_ylim((0,max(operatingCosts)*1.01))
+    ax1.set_ylim((0,175))
+        
+def curvePlot(dispatch, marginalResult, show=False, step=False):
+        
+    fuelColors, demand, cost, capacity, plantCapacity, operatingCosts, colors = getPlotInfo(dispatch, marginalResult)
     
-    #ax1.legend()
+    supplyCurve = plt.figure(num="Figure 1")
+    ax1 = supplyCurve.add_subplot(1,1,1)
+    
+    plotDipsatchCurve(step, ax1, fuelColors, demand, cost, capacity, plantCapacity, operatingCosts, colors)
+    
+    # legend
     legend_elements = []
-    for fuel in fuelColors:
-    
+    for i in range(0, fuelColors.shape[0]):
         legend_elements.extend([Line2D([0], [0], 
-                                marker='o', color='w', label=fuel.lower(),
-                                markerfacecolor=fuelColors[fuel], markersize=10)])
+                                lw=4, label=fuelColors.loc[i,'Fuel'].lower(),
+                                color=fuelColors.loc[i,'Color'])])
                                
     ax1.legend(handles=legend_elements, loc='upper left', ncol=2, frameon=False)
 
@@ -90,14 +100,50 @@ def curPlotting(dispatch, marginalResult, show=False):
     plt.title(plotName)
     plt.xlabel("Capacity (MW)")
     plt.ylabel("Maginal cost ($/MWh)")
-    #supplyCurve.tight_layout()
     
-    # could include function to save dispatch stack here for comparative plots
     if not show: 
         os.chdir(os.getcwd() + '/Output plots')
-        plt.savefig(plotName + ".png")
+        plt.savefig(plotName + ".pdf")
         os.chdir('..') 
         plt.close()
     else:
         plt.show()
+        
+def curveComparisonPlot(dispatchResults, marginalResults, plotName, markers, step=True, show=False):
+    
+    supplyCurve = plt.figure(num="Figure 2")
+    ax1 = supplyCurve.add_subplot(1,1,1)
+    
+    for i in range(0, len(dispatchResults)):
+        fuelColors, demand, cost, capacity, plantCapacity, operatingCosts, colors = getPlotInfo(dispatchResults[i], marginalResults[i])
+        
+        plotDipsatchCurve(step, ax1, fuelColors, demand, cost, capacity, plantCapacity, operatingCosts, colors, marker=markers[i])
+    
+    # legend 2
+    legend_elements2 = []
+    
+    for i in range(1, len(markers)+1):
+        legend_elements2.extend([Line2D([0], [0], 
+                                label="Method " + str(i), marker=markers[i-1],
+                                color='black', markersize=10)])
+                               
+    plt.legend(handles=legend_elements2, loc='upper left', ncol=1, frameon=False)
+    
+    
+                
+    plt.title(plotName)
+    plt.xlabel("Capacity (MW)")
+    plt.ylabel("Maginal cost ($/MWh)")
+    
+    if not show: 
+        os.chdir(os.getcwd() + '/Output plots')
+        plt.savefig(plotName + ".pdf")
+        os.chdir('..') 
+        plt.close()
+    else:
+        plt.show()
+    
+    
+    
+    
         

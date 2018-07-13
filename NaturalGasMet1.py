@@ -3,8 +3,8 @@ import pandas as pd
 ################## EIA AVERAGE FUEL COSTS #########################
 
 def interpolateFuelPrices(plants):
-    # find average by fuel group (gas or coal), purchase type (contract or spot), 
-    # state, and month (1-12)
+    # find average by fuel group (gas or coal), purchase type (contract or spot), state, and month (1-12)
+    # note: fuel costs in $/MMBtu (converted from original data when data is loaded by 'read923' function)
     summary1 = plants.groupby(['MONTH', 'Plant State', 'FUEL_GROUP', 'Purchase Type'])['FUEL_COST'].mean().reset_index()
     summary2 = plants.groupby(['MONTH', 'FUEL_GROUP', 'Purchase Type'])['FUEL_COST'].mean().reset_index()
     summary3 = plants.groupby(['MONTH', 'FUEL_GROUP'])['FUEL_COST'].mean().reset_index()
@@ -33,11 +33,15 @@ def interpolateFuelPrices(plants):
                 missing = False
             i += 1
 
-    sortVars = ['Plant Id', 'MONTH']
-    
     # take plant average
-    # note: this obscures some variability in fuel at the unit level
+    # note: this obscures some variability in fuel at the unit level, but adjusts for plants with multiple fuel types in a single month
     plantSummary = plants.groupby(['MONTH', 'Plant State', 'Plant Id'])['FUEL_COST'].mean().reset_index()
+    
+    plantSummary.rename(columns={'FUEL_COST': 'EIA Fuel Cost',
+                                 'Plant Id': 'ORIS',
+                                 'Plant State': 'State'}, inplace=True)
+                                 
+    sortVars = ['ORIS', 'MONTH']
 
     return plantSummary.sort_values(by=sortVars).reset_index(drop=True)
     

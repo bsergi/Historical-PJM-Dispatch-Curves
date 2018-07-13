@@ -8,6 +8,7 @@ import pandas as pd
 import string
 import xlrd
 import os
+import re
 
 ## NOTES
 # Emissions, gross load, and heat input currently summarized at plant level
@@ -34,9 +35,9 @@ def readCEMSfacility(filename):
     CEMSData.columns = [x.strip() for x in CEMSData.columns]   
     
     # subset to relevant columns
-    labels = ['State', 'Facility Name', 'Facility ID (ORISPL)', 'Unit ID', 
+    labels = ['State', 'Facility Name', 'Facility ID (ORISPL)', 
               'County', 'FIPS Code','Source Category', 'Fuel Type (Primary)',
-              'Fuel Type (Secondary)', 'Commercial Operation Date',
+              'Fuel Type (Secondary)', 'Commercial Operation Date', 'Unit ID',
               'Operating Status', 'Max Hourly HI Rate (MMBtu/hr)']
     CEMSData = CEMSData.loc[:,CEMSData.columns.intersection(labels)]
     
@@ -44,9 +45,8 @@ def readCEMSfacility(filename):
     CEMSData = CEMSData[CEMSData['Source Category'].isin(['Electric Utility',
                                                           'Cogeneration', 
                                                           'Small Power Producer'])]
-                                                          
     # summarize heat input at facility level 
-    CEMSData = CEMSData.groupby(['State', 'Facility Name', 'Facility ID (ORISPL)', 
+    CEMSData = CEMSData.groupby(['State', 'Facility Name', 'Facility ID (ORISPL)',
                                 'County', 'FIPS Code','Source Category'])[['Max Hourly HI Rate (MMBtu/hr)']].sum()
     CEMSData.reset_index(level=CEMSData.index.names, inplace=True)                        
     
@@ -61,9 +61,39 @@ def readCEMSEmissions(filename,time="annual"):
         # remove leading/trailing whitespace from column names
         CEMSData.columns = [x.strip() for x in CEMSData.columns] 
         
-        labels = ['State', 'Facility Name', 'Facility ID (ORISPL)', 'Unit ID', 
+        labels = ['State', 'Facility Name', 'Facility ID (ORISPL)', 'Unit ID', 'Unit Type', 
                 'County', "Gross Load (MW-h)", "SO2 (tons)", "NOx (tons)", "CO2 (short tons)"]
         CEMSData = CEMSData.loc[:,CEMSData.columns.intersection(labels)]
+        
+        # mapping of unit types
+        CEMSData["Unit Type"] = CEMSData["Unit Type"].str.replace(" \(.*\)", "")
+        
+        units = pd.DataFrame(data={'Unit Type': ['Combustion turbine', 'Tangentially-fired', 'Combined cycle',
+                                                 'Dry bottom wall-fired boiler', 'Cell burner boiler',
+                                                 'Other turbine', 'Dry bottom turbo-fired boiler', 'Stoker',
+                                                 'Other boiler', 'Circulating fluidized bed boiler',
+                                                 'Dry bottom vertically-fired boiler', 'Cyclone boiler',
+                                                 'Wet bottom turbo-fired boiler', 'Bubbling fluidized bed boiler',
+                                                 'Integrated gasification combined cycle',
+                                                 'Wet bottom wall-fired boiler'],
+                                   'Unit Group':['Combustion turbine', 'Coal boiler', 'Combined cycle',
+                                                 'Coal boiler', 'Coal boiler',
+                                                 'Combustion turbine', 'Coal boiler', 'Coal boiler',
+                                                 'Coal boiler', 'Coal boiler',
+                                                 'Coal boiler', 'Coal boiler',
+                                                 'Coal boiler', 'Coal boiler',
+                                                 'IGCC','Coal boiler']})
+                                                 
+        CEMSData = pd.merge(CEMSData, units, how="left", sort=False, on="Unit Type")
+        
+        # find generation by unit type
+        genSummary = CEMSData.groupby(['Facility ID (ORISPL)','Unit Group'])["Gross Load (MW-h)"].sum().reset_index()
+        
+        # take generator type that produces most electricity
+        genSummary.sort_values(by=['Facility ID (ORISPL)', 'Gross Load (MW-h)'], ascending=[True, False], inplace=True)
+        
+        genSummary = genSummary.loc[~genSummary.duplicated(subset=['Facility ID (ORISPL)'], keep='first'), :]
+
         
         # summarize emissions at facility level 
         CEMSData = CEMSData.groupby(['State', 'Facility Name', 
@@ -71,10 +101,12 @@ def readCEMSEmissions(filename,time="annual"):
                                                                              "NOx (tons)": sum,
                                                                              "CO2 (short tons)": sum,
                                                                              "Gross Load (MW-h)": sum})
+                                                                                                                                                          
         CEMSData.reset_index(level=CEMSData.index.names, inplace=True) 
         
-        # calculate average emissions   
-        
+        # merge in primary unit type
+        CEMSData = pd.merge(CEMSData, genSummary[["Facility ID (ORISPL)", "Unit Group"]], how="left", on = "Facility ID (ORISPL)", sort=False)                                                                    
+
         return CEMSData
 
 def mergeFacilityEmissions(CEMS, emissions):
@@ -88,7 +120,7 @@ def mergeFacilityEmissions(CEMS, emissions):
 def mergeCEMSandEGRID(CEMS, eGrid):
     # merge CEMS and eGrid data
     CEMS = pd.merge(CEMS, eGrid, how = 'left', 
-                    left_on = 'Facility ID (ORISPL)', right_on = 'DOE/EIA ORIS plant or facility code')    
+                    left_on = 'Facility ID (ORISPL)', right_on = 'ORIS')    
     return CEMS
     
 
@@ -97,16 +129,29 @@ def calcPJMcapacity(CEMS):
     return  CEMS[CEMS['Balancing Authority Code'] == 'PJM']    
 
 # calculate max heat rate (mmBTU per MWh) 
-def calcHeatRate(CEMS):  
-    # for fossil plants in CEMS, heat rate = max hourly heat input (plant total) divided by plant nameplate capacity
-    CEMS['Heat rate (MMBtu/MWh)'] = CEMS['Max Hourly HI Rate (MMBtu/hr)'] /  CEMS['Plant nameplate capacity (MW)'] 
-    
-    # set non fossil fuels to zero 
-    #CEMS.loc[CEMS['Plant primary coal/oil/gas/ other fossil fuel category'] == 'NUCLEAR', 'Heat rate (MMBtu/MWh)'] = 0
-    #CEMS.loc[CEMS['Plant primary coal/oil/gas/ other fossil fuel category'] == 'WIND', 'Heat rate (MMBtu/MWh)'] = 0
-    #CEMS.loc[CEMS['Plant primary coal/oil/gas/ other fossil fuel category'] == 'SOLAR', 'Heat rate (MMBtu/MWh)'] = 0
-    #CEMS.loc[CEMS['Plant primary coal/oil/gas/ other fossil fuel category'] == 'HYDRO', 'Heat rate (MMBtu/MWh)'] = 0
+def calcHeatRate(CEMS, eGridHR=False):  
+
+    # adjust heat rates > 100000 and ensure all heat rates are positive
+    # see https://www.eia.gov/electricity/annual/html/epa_08_01.html for example of average heat rates
+    CEMS.loc[CEMS['Plant nominal heat rate (Btu/kWh)'] > 100000, 'Plant nominal heat rate (Btu/kWh)'] = np.nan    
+    CEMS['Plant nominal heat rate (Btu/kWh)'] = CEMS['Plant nominal heat rate (Btu/kWh)'].abs()
+
+    if eGridHR:
+        # convert eGrid heat rates from Btu/kWh to mmbtu/MWh
+        CEMS['Heat rate (MMBtu/MWh)'] = CEMS['Plant nominal heat rate (Btu/kWh)'] / 1000         
+    else:
+        # for fossil plants in CEMS, heat rate = max hourly heat input (plant total) divided by plant nameplate capacity
+        CEMS['Heat rate (MMBtu/MWh)'] = CEMS['Max Hourly HI Rate (MMBtu/hr)'] /  CEMS['Plant nameplate capacity (MW)'] 
         
+    CEMS['Heat rate (MMBtu/MWh)'] = pd.to_numeric(CEMS['Heat rate (MMBtu/MWh)'])    
+    
+    # fill in missing heat rates with fuel averages
+    heatRateSummary = CEMS.groupby(['Fuel'])['Heat rate (MMBtu/MWh)'].mean().reset_index()    
+    heatRateSummary.rename(columns={'Heat rate (MMBtu/MWh)':'Fuel average heat rate'}, inplace=True)
+    CEMS = pd.merge(CEMS, heatRateSummary, how = 'outer', on = ['Fuel'])
+    
+    CEMS['Heat rate (MMBtu/MWh)'].where(~CEMS['Heat rate (MMBtu/MWh)'].isna(), CEMS['Fuel average heat rate'], inplace=True)
+                
     return CEMS
     
 def calcEmissionsRates(plants):
@@ -127,7 +172,7 @@ def calcEmissionsRates(plants):
                                                     
     
     # calculate average rates by fuel 
-    emissions = plantsSub.groupby(['Plant primary coal/oil/gas/ other fossil fuel category'])['NOx emissions rate (tons/MWh)', 
+    emissions = plantsSub.groupby(['Fuel'])['NOx emissions rate (tons/MWh)', 
                                                     'SO2 emissions rate (tons/MWh)', 
                                                     'CO2 emissions rate (tons/MWh)'].mean().reset_index()
                  
@@ -137,7 +182,7 @@ def calcEmissionsRates(plants):
                               'CO2 emissions rate (tons/MWh)': 'Average CO2 emissions rate by fuel'}, inplace=True)
     
     # merge group emissions summary
-    plants = pd.merge(plants, emissions, how = 'outer', on = ['Plant primary coal/oil/gas/ other fossil fuel category'])
+    plants = pd.merge(plants, emissions, how = 'outer', on = ['Fuel'])
 
     # iterate through rows and replace if missing or zero
     pollColNames = (['NOx emissions rate (tons/MWh)',

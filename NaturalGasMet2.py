@@ -3,83 +3,39 @@ import os
 
 ################## GAS METHOD TWO #########################
 
+# Note: confirm that these prices are in $ per MMBtu
 
-def readHubGasPrices(year, eGrid):
+## Load data (called by __main__)
+def readHubGasPrices(year, CEMS):
     os.chdir(os.getcwd() + '/Input raw data')   
     Price=readhubprices('Natural_gas_hub_prices_' + str(year) + '.xlsx')
     mapping=readmapgashubs('State_Mapping_to_Gas_Hubs.xlsx')
     os.chdir('..') 
-
-    Planthubmapping=mergedatabase(eGrid,mapping)
-    Planthubmappingtemp=mergedatabasewithyear(Price,Planthubmapping)
-    return Planthubmappingtemp
-
-# main call
-def gasMethodTwo(date,eGrid, hubprices):
-    #Plants=readegriddata(egrid)
-    Plantprices=filterDate(getprice(Price,hubprices),date)
-    # Plantprices.to_csv("Plantprices.csv")
-    return(Plantprices)
-
-'''
-def readegriddata(egrid):
-    Plantdatabase = egrid.parse('PLNT16')
-    labels = ['Plant name', 'DOE/EIA ORIS plant or facility code',
-              'Plant state abbreviation', 'Balancing Authority Code',
-              'Plant primary fuel']
-    Plantdatabasesub = Plantdatabase.loc[:, Plantdatabase.columns.intersection(labels)]
-    dftemp=Plantdatabasesub[Plantdatabasesub['Plant primary fuel'] == 'NG']
-    pjmplants=dftemp[dftemp['Balancing Authority Code'] == 'PJM']
-    #print dftemp.head(5)
-    return(pjmplants)
     
-'''
+    mapping = mapping.loc[:, ['Plant state abbreviation', 'Gas_Hubs']]
 
+    # merge CEMS data and hub identifier 
+    CEMS = pd.merge(CEMS, mapping, on="Plant state abbreviation", how="left", sort=False)
+                
+    return CEMS, Price
+    
 def readhubprices(file):
     price=pd.ExcelFile(file)
     hubprices = price.parse('Daily Summary')
-    #print hubprices.head(5)
     return(hubprices)
 
-def readmapgashubs(file2):
-    statemapping = pd.ExcelFile(file2)
+def readmapgashubs(file):
+    statemapping = pd.ExcelFile(file)
     statemappingtoplants = statemapping.parse('Sheet1')
-    #print statemappingtoplants
     return(statemappingtoplants)
+        
+## Select date (called by MarginalCostFunction) 
+def gasMethodTwo(date, hubPrices):
+    
+    # subset to hub prices on one day    
+    hubSubset = hubPrices.loc[hubPrices['Date'] == date, :]
+    hubSubset = pd.melt(hubSubset, id_vars="Date")
+    hubSubset.rename(columns={'variable':'Gas_Hubs', 'value':'Gas price'}, inplace=True)
+    hubSubset = hubSubset[['Gas_Hubs', 'Gas price']]
 
-def mergedatabase(file,file1):
-    database=pd.merge(file,file1,on='Plant state abbreviation')
-    #print database
-    return(database)
-
-def mergedatabasewithyear(file,file1):
-    file['key'] = 1
-    file1['key'] = 1
-    modifieddatabase = pd.merge(file, file1, on='key')
-    #del modifieddatabase['key']
-    labels = ['Plant name', 'DOE/EIA ORIS plant or facility code',
-              'Plant state abbreviation', 'Balancing Authority Code',
-              'Plant primary fuel','Gas_Hubs','Date']
-    modifieddatabasesub=modifieddatabase.loc[:, modifieddatabase.columns.intersection(labels)]
-    dftemp = modifieddatabasesub[modifieddatabasesub['Plant primary fuel'] == 'NG']
-    pjmplants = dftemp[dftemp['Balancing Authority Code'] == 'PJM']
-    #print database
-    return(pjmplants)
-
-def getprice(file,file1):
-    #gashubslabel=list(file.column)[1:]
-    #print file1.columns
-    #print file.columns
-    #print file1.Gas_Hubs.unique()
-    f2=file1#[file1.Gas_Hubs=='Lebanon'].copy()
-    f2['Prices']=file.set_index('Date').lookup(f2.Date,f2.Gas_Hubs)
-    #print f2.head(20)
-    return(f2)
-
-def filterDate(inputDF,date):
-    gas_single_date = inputDF[inputDF['Date']==date]
-    return(gas_single_date)
-
-
-
-   
+    return(hubSubset)

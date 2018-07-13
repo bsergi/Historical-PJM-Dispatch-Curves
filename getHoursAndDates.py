@@ -1,6 +1,9 @@
 # This function will take a start date and an end date and then 
 # return a list of the hourly dates in the format needed for the
 # marginal cost function 
+
+# Note: PJM load data does not include entries for DST hours
+
 import dateutil.parser as parser
 import datetime as dt
 import calendar
@@ -84,7 +87,7 @@ def grabHours(monthDayList,startDate,endDate):
     hourNeeded = True
     
     while hourNeeded:
-        print("Enter the first hour for the start date and the last hour on the end date (1-24).")
+        print("Enter the first hour for the start date and the last hour on the end date\n(1-24, where Hour 1 = 12 AM to 12:59 AM).")
         startHour = int(input("First hour: "))
         endHour = int(input("Last hour: "))
         
@@ -109,7 +112,7 @@ def grabHours(monthDayList,startDate,endDate):
                     newVal = subVal + [i]
                     modMonthDayList.append(newVal)
             else:
-                for i in range(1, 24):
+                for i in range(1, 25):
                     newVal = subVal + [i]
                     modMonthDayList.append(newVal)
     return(modMonthDayList)
@@ -122,9 +125,4 @@ def runGetDates():
     monthDayList = grabDays(startDate,endDate,monthList)
     monthDayHourList = grabHours(monthDayList,startDate,endDate)
     return(monthDayHourList)
-
-
-
-
-
 

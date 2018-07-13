@@ -72,12 +72,30 @@ def readEGridPlant(eGridYear):
     labels = ['Plant name', 'DOE/EIA ORIS plant or facility code',
               'Plant state abbreviation', 'Balancing Authority Code',
               'Plant primary fuel','Plant primary coal/oil/gas/ other fossil fuel category',
-              'Plant capacity factor', 'Plant nameplate capacity (MW)']
+              'Plant capacity factor', 'Plant nameplate capacity (MW)',
+              'Plant nominal heat rate (Btu/kWh)',
+              'Plant annual CO2 combustion output emission rate (lb/MWh)',
+              'Plant annual SO2 combustion output emission rate (lb/MWh)',
+              'Plant annual NOx combustion output emission rate (lb/MWh)']
     eGrid = eGrid.loc[:, eGrid.columns.intersection(labels)]
-    pjmplants=eGrid[eGrid['Balancing Authority Code'] == 'PJM']
+    pjmplants=eGrid[eGrid['Balancing Authority Code'] == 'PJM'].copy()
+    
+    # convert from lbs/MWh to tons/MWh
+    pjmplants['Plant annual NOx combustion output emission rate (lb/MWh)'] = pjmplants['Plant annual NOx combustion output emission rate (lb/MWh)'] / 2000
+    pjmplants['Plant annual SO2 combustion output emission rate (lb/MWh)'] = pjmplants['Plant annual SO2 combustion output emission rate (lb/MWh)'] / 2000
+    pjmplants['Plant annual CO2 combustion output emission rate (lb/MWh)'] = pjmplants['Plant annual CO2 combustion output emission rate (lb/MWh)'] / 2000
+    
+    # rename some columns
+    pjmplants.rename(columns={'Plant primary coal/oil/gas/ other fossil fuel category':'Fuel',
+                              'DOE/EIA ORIS plant or facility code': 'ORIS',
+                              'Plant annual NOx combustion output emission rate (lb/MWh)': 'eGrid annual NOx rate (ton/MWh)', 
+                              'Plant annual SO2 combustion output emission rate (lb/MWh)': 'eGrid annual SO2 rate (ton/MWh)', 
+                              'Plant annual CO2 combustion output emission rate (lb/MWh)': 'eGrid annual CO2 rate (ton/MWh)', 
+                             }, inplace=True)
+    
     return pjmplants
     
-def readCEMS(CEMSyear, eGrid):
+def readCEMS(CEMSyear, eGrid, eGridHR=False):
     
     # CEMS at unit level, eGrid capacity data (MW) at plant level
     filenameCEMSfacility = "CEMS facility data " + str(CEMSyear) + ".csv"    
@@ -85,14 +103,16 @@ def readCEMS(CEMSyear, eGrid):
     
     # facility data
     CEMS = readCEMSfacility(filenameCEMSfacility)
+        
     # emissions data
     annualEmissions = readCEMSEmissions(filenameCEMSemissions)
     
     # combine and merge with eGrid (only fossil)
     CEMS = mergeFacilityEmissions(CEMS, annualEmissions)
+        
     plants = mergeCEMSandEGRID(CEMS, eGrid)
     plants = calcPJMcapacity(plants)
-    plants = calcHeatRate(plants)
+    plants = calcHeatRate(plants, eGridHR)
     plants = calcEmissionsRates(plants)
     
     # sort by heat rate
@@ -102,9 +122,6 @@ def readCEMS(CEMSyear, eGrid):
     os.chdir(os.getcwd() + '/Output data')   
     plants.to_csv("Heat rate data " + str(CEMSyear) + ".csv", index=False)
     os.chdir('..') 
-
-    plants['Fuel Cost ($/MMBtu)'] = 0
-    plants['Marginal Cost ($/MWh)'] = 0
     
     return plants
     
@@ -135,7 +152,7 @@ def read923(fuel, generators):
     fuels["FUEL_COST"].replace(".", scipy.NaN, inplace=True)
     fuels["FUEL_COST"] = pd.to_numeric(fuels["FUEL_COST"])
     
-    # convert to $ per mmbtu
+    # Convert fuel costs from cents/MMBtu to $ per MMBtu
     fuels["FUEL_COST"] = fuels["FUEL_COST"]/100 
     
     return(fuels)

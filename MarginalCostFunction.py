@@ -7,7 +7,9 @@
 # When first gas pricing method set up, integrate with coal method for 
 # greater variability in coal prices
     
-# Source for biomass costs: https://www.epa.gov/sites/production/files/2015-07/documents/biomass_combined_heat_and_power_catalog_of_technologies_7._representative_biomass_chp_system_cost_and_performance_profiles.pdf
+# Biomass costs: https://www.epa.gov/sites/production/files/2015-07/documents/biomass_combined_heat_and_power_catalog_of_technologies_7._representative_biomass_chp_system_cost_and_performance_profiles.pdf
+# Nuclear fuel costs: https://www.eia.gov/electricity/annual/html/epa_08_04.html
+# VOM costs from NREL ATB: https://atb.nrel.gov/electricity/2018/summary.html
     
 # check units on PJM load data
 
@@ -35,23 +37,14 @@ from getHoursAndDates import *
 
 # removes excess columns from CEMS data for ease of use
 def simplifyDF(df):
-    # Code below counts rows that do have heat rate values
-    hrCount = 0
-    for i in range(len(df)):
-        val = df.loc[i]['Heat rate (MMBtu/MWh)']
-        if not pd.isnull(val):
-            continue
-        else:
-            hrCount = i-1
-            break
-
+    # Drop any plants without heat rates (note: not needed since NAs will be sorted last by marginal cost) 
+    # df = df.loc[~df['Heat rate (MMBtu/MWh)'].isna(), :]
+    
     # SimpleDF dataframe simplifies original dataframe by removing unneeded columns
     # change primary coal to general fuel category
-    simpleLabels = ['State','Facility Name','DOE/EIA ORIS plant or facility code',
-        'Plant primary coal/oil/gas/ other fossil fuel category',
-        'Plant nameplate capacity (MW)','Heat rate (MMBtu/MWh)','Fuel Cost ($/MMBtu)','Marginal Cost ($/MWh)']
-
-    simpleDF = df.loc[:hrCount,simpleLabels]
+    simpleLabels = ['State','Facility Name','ORIS',
+                    'Fuel', 'Plant nameplate capacity (MW)','Heat rate (MMBtu/MWh)', 'Gas_Hubs', 'Unit Group']
+    simpleDF = df.loc[:,simpleLabels]
     
     # reset index
     simpleDF.reset_index(drop=True, inplace=True)                        
@@ -59,70 +52,66 @@ def simplifyDF(df):
     return(simpleDF)
     
 # Function to calculate operating costs in $/MWh for each plant
-def calcMarginalCosts(simpleDF,gasMethod,yr,month,day,hour,fuelData, eGrid, monthlyPlantFuelCostData, hubPrices, henryHubPrices):
+def calcMarginalCosts(simpleDF,gasMethod,year,month,day,hour,fuelData, eGrid, monthlyPlantFuelCostData, hubPrices, henryHubPrices):
 
-    # estimate costs for oil and biomass 
-    # note: nuclear cost is not a real estimate, currently a placeholder
-    # source for biomass costs above
-    # should include oil prices over time
-    oilCost, biomassCost, nuclearCost = [10, 2, 5] # [Oil Biomass Nuclear] $/MMBtu
-    
     # different formatting for extracting coal and gas fuel info
-    dateGas = str(month)+'-'+str(day)+'-'+str(yr)
-    dateCoal = str(month)+'/'+str(day)+'/'+str(yr)
+    dateGas = str(month)+'-'+str(day)+'-'+str(year)
+    dateCoal = str(month)+'/'+str(day)+'/'+str(year)
     
     # average coal price for given month
     coalPrice = coalMethodOne(dateCoal, fuelData)
-        
+    
+    # Henry Hub gas price for that date (used for Method 3)
+    gasPrice = gasMethodThree(dateGas,eGrid,henryHubPrices)
+    
+    # Estimated costs for nuclear, biomass, and oil (see sources above)
+    # Could potentially include changing oil prices over time
+    # Also in data: OTHF (Other fuel) -- could be number of options
+    prices = pd.DataFrame(data={'Fuel': ['OIL', 'BIOMASS', 'NUCLEAR', 'COAL', 'GAS'], 
+                                'Fuel Cost ($/MMBtu)': [10, 2, 7.5, coalPrice, gasPrice]})
+    
+    simpleDF = pd.merge(simpleDF, prices, on=['Fuel'], how='left', sort=False)      
     # gas prices: three methods available
-    # Method 1: Plant-specific monthly average from EIA (not yet running)
+    # Method 1: Plant-specific monthly average from EIA (under construction)
     # Method 2: State-based hub daily values
-    # Method 3: Henry Hub daily values
-    if gasMethod == 1:
-        gasDF = monthlyPlantFuelCostData
-    if gasMethod == 2:
-        gasDF = gasMethodTwo(dateGas,eGrid, hubPrices)        
-    if gasMethod == 3:
-        # gasDF should become a dataframe with just NG plants, their ORIS ID,
-        # a single date, and the fuel price ($/ton) for each plant
-        #gasDF = gasMethodThree(dateGas,eGrid,henryHubPrices)
-        gasPrice =  gasMethodThree(dateGas,eGrid,henryHubPrices)
+    # Method 3: Henry Hub daily values (baseline, constructed above)
+    if gasMethod == 1:        
+        fuelCostDataSub = monthlyPlantFuelCostData.loc[monthlyPlantFuelCostData['MONTH'] == 1, ['ORIS', 'EIA Fuel Cost']]        
+        # merge montly data set
+        simpleDF = pd.merge(simpleDF, fuelCostDataSub, on="ORIS", how="left", sort=False)                
+        # use plant fuel cost average whenever data not missing (otherwise use fuel average values)         
+        simpleDF['Fuel Cost ($/MMBtu)'].where(simpleDF['EIA Fuel Cost'].isna(), simpleDF['EIA Fuel Cost'], inplace=True)  
+    elif gasMethod == 2:
+        # get hub prices for specified day
+        gasDF = gasMethodTwo(dateGas, hubPrices)         
+        # merge hub gas prices with main data set data frame     
+        simpleDF = pd.merge(simpleDF, gasDF, on="Gas_Hubs", how="left", sort=False)        
+        # replace gas plants with hub-based gas prices        
+        simpleDF['Fuel Cost ($/MMBtu)'].where(simpleDF['Fuel'] != 'GAS', simpleDF['Gas price'], inplace=True)   
+            
+    # Calculate marginal cost of operation in $/MWh for given fuel prices for given time snapshot    
+    simpleDF.loc[:, "Marginal Cost ($/MWh)"] = simpleDF["Fuel Cost ($/MMBtu)"] * simpleDF["Heat rate (MMBtu/MWh)"]  
+    
+    # VOM in $ per MWh (from NREL 2018 ATB) (no data for oil at the moment)       
+    # Note: need  to check out these are added to cost in PJM market 
+    # Gas VOM depends on CT or CC                  
+    VOM = pd.DataFrame(data={'Fuel': ['OIL', 'BIOMASS', 'NUCLEAR', 'COAL', 'GAS'], 
+                             'VOM ($/MWh)': [0, 5, 2, 5, 3]})
+                      
+                                                        
+    simpleDF = pd.merge(simpleDF, VOM, on=['Fuel'], how='left', sort=False)      
+    
+    # convert NAs to 0's
+    simpleDF['VOM ($/MWh)'].where(~simpleDF['VOM ($/MWh)'].isna(), 0, inplace=True) 
+    
+    # assign higher price to combustion turbines
+    simpleDF['VOM ($/MWh)'].where(simpleDF['Unit Group'] != "Combustion turbine", 7, inplace=True) 
+    
+    # add in VOM
+    simpleDF.loc[:, "Marginal Cost ($/MWh)"] = simpleDF["Marginal Cost ($/MWh)"] + simpleDF['VOM ($/MWh)'] 
 
-    for i in range(len(simpleDF)):
-        
-        fuelType = simpleDF.loc[i, "Plant primary coal/oil/gas/ other fossil fuel category"].lower()
-        ORIS_id = simpleDF.loc[i, "DOE/EIA ORIS plant or facility code"]
+    return(simpleDF)
     
-        if fuelType == "gas":
-            
-            if gasMethod == 1:
-                # check that ORIS code is present for method 1
-                gasPrice = gasDF.loc[gasDF["DOE/EIA ORIS plant or facility code"] == ORIS_id, "Prices"].item()
-                simpleDF.loc[i,"Fuel Cost ($/MMBtu)"] = gasPrice
-            elif gasMethod == 2:
-                gasPrice = gasDF.loc[gasDF["DOE/EIA ORIS plant or facility code"] == ORIS_id, "Prices"].item()
-                simpleDF.loc[i,"Fuel Cost ($/MMBtu)"] = gasPrice
-            
-            simpleDF.loc[i,"Fuel Cost ($/MMBtu)"] = gasPrice    
-            
-        elif fuelType =="coal":
-            simpleDF.loc[i, "Fuel Cost ($/MMBtu)"] = coalPrice
-        elif fuelType =="oil":
-            simpleDF.loc[i, "Fuel Cost ($/MMBtu)"] = oilCost
-        elif fuelType == "biomass":
-            simpleDF.loc[i,"Fuel Cost ($/MMBtu)"] = biomassCost
-        elif fuelType == "nuclear": 
-            simpleDF.loc[i,"Plant nameplate capacity (MW)"] = nuclearCost
-            
-    
-    # Calculate marginal cost of operation given fuel prices
-    for i in range(len(simpleDF)):
-        fuelCost = simpleDF.loc[i]["Fuel Cost ($/MMBtu)"]
-        heatRate = simpleDF.loc[i]["Heat rate (MMBtu/MWh)"]
-        
-        # Calculate variable operating costs in $/MWh for snapshot in time
-        marginalCost = fuelCost*heatRate 
-        simpleDF.loc[i,"Marginal Cost ($/MWh)"] = marginalCost
         
 ## Coal prices
 
@@ -147,14 +136,11 @@ def getFuelMonthlyAverage(plants, fuel):
 def methodSelect():
     x = True
     
-    inputString = 'What method would you like to use to determine natural gas prices? Please enter 1, 2, or 3. (Note: Methods 1 and 2 currently unavailable.)\n1 = EIA monthly fuel price averages\n2 = State-based daily hub values\n3 = Henry Hub daily values\nMethod choice: '
+    inputString = 'What method would you like to use to determine natural gas prices? Please enter 1, 2, or 3.\n1 = EIA monthly fuel price averages\n2 = State-based daily hub values\n3 = Henry Hub daily values\nMethod choice: '
     while x == True:
         try:
             y = int(input(inputString))
-            if y == 1 or y == 2:
-                print("Methods 1 and 2 are still under construction. Please select 3 :)")
-            elif y == 3:
-                return(y)
+            return(y)
         except:
             continue
 
@@ -169,7 +155,7 @@ def addNonFossilGen(plants, renewables, hour, day, month):
     
     for fuel in sub["fuel_type"].unique().tolist():
         newRow = blankRow.copy()
-        newRow["Plant primary coal/oil/gas/ other fossil fuel category"] = fuel.upper()        
+        newRow["Fuel"] = fuel.upper()        
         newRow["Plant nameplate capacity (MW)"]  = sub.loc[sub["fuel_type"] == fuel, "mw"].reset_index(drop=True)[0]
         
         plants = pd.concat([pd.DataFrame([newRow]), plants], ignore_index = True)
@@ -190,7 +176,11 @@ def sumCapacity(sortedDF):
 # adds in actual generation by renewables
 def createDispatchCurve(simpleDF, renewables, month,day,hour): 
     sortedDF = addNonFossilGen(simpleDF, renewables, hour, day, month)
-    sortedDF = sortedDF.sort_values(by=['Marginal Cost ($/MWh)'])
+    
+    sortedDF['Fuel'] = pd.Categorical(sortedDF['Fuel'],
+                            ['WIND', 'SOLAR', 'HYDRO', 'NUCLEAR',  'GAS', 'COAL', 'OIL', 'STORAGE', 'OTHER RENEWABLES', 'OTHF'])
+    
+    sortedDF = sortedDF.sort_values(by=['Marginal Cost ($/MWh)', 'Fuel'])
     sortedDF = sortedDF.reset_index(drop=True)
     return(sumCapacity(sortedDF))
 
@@ -226,13 +216,12 @@ def findMarginalGenerator(dispatch, CEMS, year, month, day, hour, demand):
     loadServed = 0
     
     # check that load is not zero or above total capacity  
-    if load > dispatch['Running Capacity (MW)'].max() or load <= 0:
+    if load > dispatch['Running Capacity (MW)'].max() or load <= 0 or np.isnan(load):
         margin = -1
-    
-    while margin < len(dispatch) and loadServed < load and margin != -1:
-        loadServed = dispatch.loc[margin]['Running Capacity (MW)']
-        margin += 1
-        
+    else:
+    # otherwise select first generator where cumulative capacity meets load
+        margin = dispatch.loc[dispatch['Running Capacity (MW)'] >= load, 'Running Capacity (MW)'].idxmin()
+                
     marginalGen = dict()
     marginalGen["Hour"], marginalGen["Day"], marginalGen["Month"], marginalGen["Year"] = hour, day, month, year  
     marginalGen["System load (MW)"] = load 
@@ -240,7 +229,7 @@ def findMarginalGenerator(dispatch, CEMS, year, month, day, hour, demand):
     if margin != -1:
         # store marginal cost and plant ID
         marginalGen["Marginal Cost ($/MWh)"] = [dispatch.loc[margin, 'Marginal Cost ($/MWh)']][0]
-        marginalGen["ORIS ID"] = [dispatch.loc[margin, 'DOE/EIA ORIS plant or facility code']][0]
+        marginalGen["ORIS ID"] = [dispatch.loc[margin, 'ORIS']][0]
         
         # find fuel type and marginal emissions info        
         emissions = genEmissionsInfo(CEMS, marginalGen["ORIS ID"], margin)
@@ -265,10 +254,10 @@ def genEmissionsInfo(df, ORIS, margin):
                         'NOx emisisons rate (tons/MWh)': 0,
                         'SO2 emissions rate (tons/MWh)': 0}
     else:            
-        fuelType = df.loc[df['DOE/EIA ORIS plant or facility code'] == ORIS, 'Plant primary coal/oil/gas/ other fossil fuel category'].item()
-        CO2 = df.loc[df['DOE/EIA ORIS plant or facility code'] == ORIS, 'CO2 emissions rate (tons/MWh)'].item()
-        SO2 = df.loc[df['DOE/EIA ORIS plant or facility code'] == ORIS, 'SO2 emissions rate (tons/MWh)'].item()
-        NOx = df.loc[df['DOE/EIA ORIS plant or facility code'] == ORIS, 'NOx emissions rate (tons/MWh)'].item()
+        fuelType = df.loc[df['ORIS'] == ORIS, 'Fuel'].item()
+        CO2 = df.loc[df['ORIS'] == ORIS, 'CO2 emissions rate (tons/MWh)'].item()
+        SO2 = df.loc[df['ORIS'] == ORIS, 'SO2 emissions rate (tons/MWh)'].item()
+        NOx = df.loc[df['ORIS'] == ORIS, 'NOx emissions rate (tons/MWh)'].item()
         
         emissionsInfo = {'Fuel': fuelType,
                         'CO2 emissions rate (tons/MWh)': CO2,

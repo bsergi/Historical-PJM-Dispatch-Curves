@@ -1,11 +1,16 @@
 # Script for analyzing results
-# currently set up for 2016 results
+
+# In this Analysis file:
+# 1. Table of marginal fuels
+# 2. Boxplots of marginal emissions factors
+# 3. Monthly marginal emissions average line plot
+# 4. Comparison to PJM LMP
 
 ## Notes
 
 # to do: adjust LMP plot to plot multiple price results after updating methods 1 and 2
 
-## Libraries
+## Libraries / data loading
 
 import pandas as pd
 import numpy as np 
@@ -14,14 +19,13 @@ import seaborn as sns
 import os
 import datetime as dt
 
-## Read results
-
 os.chdir(os.getcwd() + '/Output data')   
 resultsFile = "Marginal Generators All 2016.csv"
 results = pd.read_csv(resultsFile, parse_dates=True, index_col=0)  
 os.chdir('..') 
 
-## Table of fuels
+
+## 1. Table of fuels
 
 # calculate count by fuel
 # adjust group vars to slice by other values
@@ -38,7 +42,103 @@ fuelShareHourly = fuelShareTable(results, groupVars=['Hour', 'Fuel'])
 fuelShareAnnual = fuelShareTable(results, groupVars=['Fuel'])
 
 
-## Comparison to PJM LMP
+## 2. Boxplots of marginal emissions factors
+
+def readdata2(file):
+    Sheet=pd.ExcelFile(file)
+    Monthly_Data= Sheet.parse('2016_Method_Two_correctOil')
+    #Monthly_Data = Data.set_index('Date')
+    Monthly_Data['month']= Monthly_Data['Date'].map(lambda x:x.month)
+    #dftemp = Monthly_Data[Monthly_Data['month'] == 2]
+    #print dftemp
+    return Monthly_Data
+
+
+def plotboxplot(file):
+    file.boxplot(column='CO2 emissions rate (tons/MWh)', by='month')
+    plt.title("Boxplot of Emissions")
+    plt.ylabel('tons/MWh', fontdict=None, labelpad=None)
+    plt.legend(loc='upper right')
+    plt.show()
+
+
+Data=readdata2(r'C:\Users\joshg\Desktop\Research\2016_Method_Two_correctOil.xlsx')
+boxplot_file=plotboxplot(Data)
+
+def readdata2(file):
+    Sheet=pd.ExcelFile(file)
+    Monthly_Data= Sheet.parse('2016_Method_Two')
+    #Monthly_Data = Data.set_index('Date')
+    Monthly_Data['month']= Monthly_Data['Date'].map(lambda x:x.month)
+    #dftemp = Monthly_Data[Monthly_Data['month'] == 2]
+    #print dftemp
+    return Monthly_Data
+
+def readdata3(file):
+    Sheet=pd.ExcelFile(file)
+    Data= Sheet.parse('Season')
+    return Data
+
+def mergedatabase(file,file1):
+    database=pd.merge(file,file1,on='month')
+    #print database
+    return database
+
+def plotboxplot(file):
+
+    file.boxplot(column='CO2 emissions rate (tons/MWh)', by='Season')
+    #file.plot(kind='scatter',x='month', y='Emission Rate')
+    #file.scatter('Season', 'Emission Rate ', alpha=0.5)
+    plt.title("Boxplot of Emissions By Season")
+    plt.ylabel('tons/MWh', fontdict=None, labelpad=None)
+    plt.show()
+
+def mergedatabase(file,file1):
+    database=pd.merge(file,file1,on='month')
+    #print database
+    return database
+
+Data=readdata2(r'C:\Users\joshg\Desktop\Research\Outputs.xlsx')
+Seasons=readdata3(r'C:\Users\joshg\Desktop\Research\seasons.xlsx')
+Plantseasonmapping=mergedatabase(Data,Seasons)
+boxplot_file=plotboxplot(Plantseasonmapping)
+
+## 3. Monthly marginal emissions average line plot
+
+def readdata(file):
+    Sheet=pd.ExcelFile(file)
+    Data= Sheet.parse('2016_Method_Two_correctOil')
+    Monthly_Data=Data.set_index('Date').groupby([pd.TimeGrouper(freq='M')])['CO2 emissions rate (tons/MWh)'].mean()
+    #print Monthly_Data.head(12)
+    return Monthly_Data
+
+def readdata2(file):
+    Sheet=pd.ExcelFile(file)
+    Data= Sheet.parse('2016_Method_Two_correctOil')
+    Monthly_Data = Data.set_index('Date')
+    #DF = Data['CO2 emissions rate (tons/MWh)']
+    return Monthly_Data
+
+def plotlinegraph(file):
+    file.plot(title='Hour 15 Average Marginal CO2 Emission in 2016 by Months',y='CO2 emissions rate (tons/MWh)')
+    plt.ylabel('tons/MWh', fontdict=None, labelpad=None)
+    plt.legend(loc='upper right')
+    plt.show()
+
+def plotlinegraph2(file):
+    file.plot(title='Hour 15 Marginal CO2 Emission in 2016',y='CO2 emissions rate (tons/MWh)')
+    plt.ylabel('tons/MWh', fontdict=None, labelpad=None)
+    plt.legend(loc='upper right')
+    #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
+    plt.show()
+
+
+Database=readdata(r'C:\Users\joshg\Desktop\Research\2016_Method_Two_correctOil.xlsx')
+Data=readdata2(r'C:\Users\joshg\Desktop\Research\2016_Method_Two_correctOil.xlsx')
+Plot_file2=plotlinegraph2(Data)
+Plot_file=plotlinegraph(Database)
+
+## 4. Comparison to PJM LMP
 
 # subset to appropriate hours to match results
 def readPJMLMPs(filename, subsetHours=None):
