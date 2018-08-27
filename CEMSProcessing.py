@@ -94,8 +94,7 @@ def readCEMSEmissions(filename,time="annual"):
         
         genSummary = genSummary.loc[~genSummary.duplicated(subset=['Facility ID (ORISPL)'], keep='first'), :]
 
-        
-        # summarize emissions at facility level 
+        # summarize emissions at facility (plant) level 
         CEMSData = CEMSData.groupby(['State', 'Facility Name', 
                                      'Facility ID (ORISPL)', 'County']).agg({"SO2 (tons)": sum,
                                                                              "NOx (tons)": sum,

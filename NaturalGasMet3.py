@@ -42,6 +42,6 @@ def mergeprice(file, file1):
     file, file1 = file.copy(), file1.copy()
     file['key'] = 1
     file1['key'] = 1
-    finalprices=pd.merge(file,file1,on='key')
+    finalprices=pd.merge(file,file1,on='key',sort=False)
     del finalprices['key']
     return(finalprices)

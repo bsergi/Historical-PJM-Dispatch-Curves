@@ -18,8 +18,7 @@
 # baseWD =  '/Users/Cartographer/Documents/Carnegie Mellon/Box Sync/Research/Dispatch curves/Final model/runModel'
 year = 2016
 
-saveDates = [[1,1,18], [4,1,18], [7,1,18], [10,1,18],
-             [1,1,4], [4,1,4], [7,1,4], [10,1,4]]          # list of dates to save plots/dispatch curve data (date format: [m,d,h])
+saveDates = [[8,15,18]]          # list of dates to save plots/dispatch curve data (date format: [m,d,h])
 
 ## Time update function
 
@@ -60,6 +59,8 @@ from PlotDispatchCurve import *
 
 timeUpdate("complete (%0.1f seconds).", start=start)
 
+pd.set_option("display.max_columns",10)
+
 ## Pre-load variables
 
 start = timeUpdate("Loading data sets...")
@@ -77,6 +78,7 @@ fuelData = read923(fuel, generators)
 
 # load eGrid data
 eGrid = readEGridPlant(year)
+eGrid = calcRetiredGen(year, eGrid)
 
 # load CEMS data
 CEMS = readCEMS(year, eGrid, eGridHR=False)

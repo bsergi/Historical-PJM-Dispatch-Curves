@@ -71,6 +71,7 @@ def readEGridPlant(eGridYear):
     #Plantdatabase = EGRID_Data.parse('PLNT16')
     labels = ['Plant name', 'DOE/EIA ORIS plant or facility code',
               'Plant state abbreviation', 'Balancing Authority Code',
+              'Plant associated ISO/RTO Territory ',
               'Plant primary fuel','Plant primary coal/oil/gas/ other fossil fuel category',
               'Plant capacity factor', 'Plant nameplate capacity (MW)',
               'Plant nominal heat rate (Btu/kWh)',
@@ -81,18 +82,21 @@ def readEGridPlant(eGridYear):
     pjmplants=eGrid[eGrid['Balancing Authority Code'] == 'PJM'].copy()
     
     # convert from lbs/MWh to tons/MWh
-    pjmplants['Plant annual NOx combustion output emission rate (lb/MWh)'] = pjmplants['Plant annual NOx combustion output emission rate (lb/MWh)'] / 2000
-    pjmplants['Plant annual SO2 combustion output emission rate (lb/MWh)'] = pjmplants['Plant annual SO2 combustion output emission rate (lb/MWh)'] / 2000
-    pjmplants['Plant annual CO2 combustion output emission rate (lb/MWh)'] = pjmplants['Plant annual CO2 combustion output emission rate (lb/MWh)'] / 2000
+    pjmplants['eGrid annual NOx rate (ton/MWh)'] = pjmplants['Plant annual NOx combustion output emission rate (lb/MWh)'] / 2000
+    pjmplants['eGrid annual SO2 rate (ton/MWh)'] = pjmplants['Plant annual SO2 combustion output emission rate (lb/MWh)'] / 2000
+    pjmplants['eGrid annual CO2 rate (ton/MWh)'] = pjmplants['Plant annual CO2 combustion output emission rate (lb/MWh)'] / 2000
     
     # rename some columns
     pjmplants.rename(columns={'Plant primary coal/oil/gas/ other fossil fuel category':'Fuel',
                               'DOE/EIA ORIS plant or facility code': 'ORIS',
-                              'Plant annual NOx combustion output emission rate (lb/MWh)': 'eGrid annual NOx rate (ton/MWh)', 
-                              'Plant annual SO2 combustion output emission rate (lb/MWh)': 'eGrid annual SO2 rate (ton/MWh)', 
-                              'Plant annual CO2 combustion output emission rate (lb/MWh)': 'eGrid annual CO2 rate (ton/MWh)', 
                              }, inplace=True)
+                             
+    pjmplants = pjmplants.astype({"ORIS": "int64"})
     
+    pjmplants = pjmplants.sort_values(by='ORIS').reset_index(drop=True)
+    pjmplants.drop(['Plant annual CO2 combustion output emission rate (lb/MWh)',
+                    'Plant annual SO2 combustion output emission rate (lb/MWh)',
+                    'Plant annual NOx combustion output emission rate (lb/MWh)'], axis=1, inplace=True)
     return pjmplants
     
 def readCEMS(CEMSyear, eGrid, eGridHR=False):
@@ -111,7 +115,7 @@ def readCEMS(CEMSyear, eGrid, eGridHR=False):
     CEMS = mergeFacilityEmissions(CEMS, annualEmissions)
         
     plants = mergeCEMSandEGRID(CEMS, eGrid)
-    plants = calcPJMcapacity(plants)
+    plants = calcPJMcapacity(plants)            # subset to PJM (note: will drop CEMS plants not in eGrid)
     plants = calcHeatRate(plants, eGridHR)
     plants = calcEmissionsRates(plants)
     
@@ -157,4 +161,42 @@ def read923(fuel, generators):
     
     return(fuels)
     
+def calcRetiredGen(eGridYear, eGrid):
+    filenameEGRID = "egrid" + str(eGridYear) + "_data.xlsx"
+    sheetName = "GEN" + str(eGridYear % 100) 
+    
+    # read generator info
+    os.chdir(os.getcwd() + '/Input raw data')   
+    gen = pd.read_excel(pd.ExcelFile(filenameEGRID), sheetName)
+    os.chdir('..') 
+    
+    # drop first row
+    gen = gen.drop(gen.index[0])
+    gen = gen.astype({"DOE/EIA ORIS plant or facility code": "int64"})
+    
+    # calculate retired generation by plant
+    retired = gen.loc[gen['Generator planned or actual retirement year'] <= eGridYear, :]
+    
+    retiredTotal = retired.groupby(['DOE/EIA ORIS plant or facility code']).agg({'Generator nameplate capacity (MW)':'sum'})
+    retiredTotal.reset_index(level=0, inplace=True)
+    
+    retiredTotal.rename(columns={'Generator nameplate capacity (MW)':'Retired generator capacity (MW)',
+                              'DOE/EIA ORIS plant or facility code': 'ORIS',
+                             }, inplace=True)
+    
+    eGrid = pd.merge(eGrid, retiredTotal, how='left', on='ORIS')
+    
+    # convert retired NAs to zeros
+    eGrid['Retired generator capacity (MW)'].fillna(0, inplace=True)
+    
+    # calculate capacity after retirements
+    eGrid['Plant nameplate capacity (MW)'] = eGrid['Plant nameplate capacity (MW)'] - eGrid['Retired generator capacity (MW)']
+    
+    # handle python rounding errors
+    eGrid.loc[abs(eGrid['Plant nameplate capacity (MW)'] < 1),  'Plant nameplate capacity (MW)'] = 0 
+    
+    # remove plants with black or zero capacity factor (except for oil plants)
+    eGrid = eGrid.loc[(eGrid['Fuel'] == "OIL") | (eGrid['Plant capacity factor'] > 0.01) & (~eGrid['Plant capacity factor'].isnull()), ]    
+        
+    return eGrid
     
