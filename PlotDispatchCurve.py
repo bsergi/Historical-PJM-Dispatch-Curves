@@ -9,7 +9,6 @@ import numpy as np
 import scipy
 
 import matplotlib.pyplot as plt
-import seaborn as sns
 from matplotlib.lines import Line2D
 import matplotlib.patches as mpatches
 

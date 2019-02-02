@@ -44,7 +44,6 @@ import pandas as pd
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
-import seaborn as sns
 import dateutil.parser as parser
 import datetime as dt
 import calendar
@@ -143,7 +142,7 @@ def runModel(runName, saveDates):
     timeUpdate("Dispatch model complete (%0.1f seconds).", start=start)
     print("Analysis complete.")
 
-# runModel("Method 2 Full", saveDates)
+runModel("Method 2 Full", saveDates)
 # see accompanying scripts for post-run analysis
 
 ## Comparison functions

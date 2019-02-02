@@ -30,102 +30,10 @@ annualEmissions = readCEMSEmissions(filenameCEMSemissions)
 # combine and merge with eGrid (only fossil)
 fullCEMS = mergeFacilityEmissions(facility, annualEmissions)
 
-## CEMS vs eGrid and data availability
+## Scatterplot 
 
 
-superCEMS = pd.merge(CEMS, eGrid, how = 'outer', left_on = 'Facility ID (ORISPL)', right_on = 'ORIS')   
-# for 2016, 1215 total facilities listed in CEMS and 1366 listed in eGrid
-
-
-
-## Heat rates
-
-# Note: for comparison, need to load CEMS data with eGridHR=False
-
-# mmBTU = 1 million BTU (1 MMBtu/MWh = 1000 Btu/kWh)
-CEMS.loc[:,['Heat rate (MMBtu/MWh)', 'Plant nominal heat rate (Btu/kWh)'] ]
-
-# MFE
-
-def calcMFE(col1, col2):
-    diffs = col1 - col2
-    diffs = diffs.abs()    
-    sums = (col1 + col2) / 2   
-    MFEs = diffs / sums
-    return MFEs.sum() / MFEs.shape[0]
-    
-
-def calcMFB(col1, col2):
-    diffs = col1 - col2
-    sums = (col1 + col2) / 2   
-    MFBs = diffs / sums
-    return MFBs.sum() / MFBs.shape[0]
-    
-# boxplots
-
-CEMS['Heat rate diff'] = CEMS['Heat rate (MMBtu/MWh)'] * 1000 - CEMS['Plant nominal heat rate (Btu/kWh)']
-CEMS['Heat rate diff percent'] = (CEMS['Heat rate (MMBtu/MWh)'] * 1000 - CEMS['Plant nominal heat rate (Btu/kWh)'] ) / CEMS['Plant nominal heat rate (Btu/kWh)'] 
-
-CEMS.boxplot(column='Heat rate diff', by='Fuel', 
-             patch_artist=True)
-plt.show()
-
-# test = calcMFE(pd.Series([1,2]), pd.Series([0,3]))
-
-MFE_HR = calcMFE(CEMS['Heat rate (MMBtu/MWh)'] * 1000, CEMS['Plant nominal heat rate (Btu/kWh)'])
-MFB_HR = calcMFB(CEMS['Heat rate (MMBtu/MWh)'] * 1000, CEMS['Plant nominal heat rate (Btu/kWh)'])
-
-# histogram
-
-num_bins = 5
-n, bins, patches = plt.hist(diffs, num_bins, facecolor='blue', alpha=0.5)
-plt.show()
-
-diffs.describe()
-diffs.quantile(q=[0, 0.25, 0.5, 0.75, 1])
-percents.quantile(q=[0, 0.25, 0.5, 0.75, 1])
-
-sum(CEMS['Heat rate (MMBtu/MWh)'].isna())
-sum(CEMS['Plant nominal heat rate (Btu/kWh)'].isna())
-
-# extreme values 
-CEMS.loc[CEMS['Heat rate diff'].abs() > 15000,['Plant nameplate capacity (MW)','Max Hourly HI Rate (MMBtu/hr)', 
-                                            'Heat rate (MMBtu/MWh)', 'Plant nominal heat rate (Btu/kWh)']]
-                                            
-CEMS.loc[CEMS['Plant nominal heat rate (Btu/kWh)'] > 100000,:]   
-
-
-# missing values (8 missing from eGrid calculated value)
-CEMS['Plant nominal heat rate (Btu/kWh)'].isna().sum()
-CEMS.loc[CEMS['Plant nominal heat rate (Btu/kWh)'].isna(), ['Facility Name', 'Fuel',
-                                                            'Plant nominal heat rate (Btu/kWh)']]
-
-
-CEMS.loc[CEMS['Heat rate (MMBtu/MWh)'].isna(),:]
-
-
-                                
-## Total gen. capacity
-CEMS['Plant nameplate capacity (MW)'].sum()
-# PJM total installed capacity of 182,410 MW January 2017
-# http://www.pjm.com/-/media/committees-groups/committees/mc/20180322-state-of-market-report-review/20180322-2017-state-of-the-market-report-review.ashx
-
-eGrid.groupby(['Fuel'])['Plant nameplate capacity (MW)'].sum()
-CEMS.groupby(['Fuel'])['Plant nameplate capacity (MW)'].sum()
-# aligns relatively well with table
-
-# Large number of plants within PJM from eGrid that are not listed in CEMS
-# possible reasons:
-# non-fossil (i.e. non-emitting) plants
-# CEMS only includes plants > 25
-# plants may have closed between 2016 and 2017 
-
-
-
-## Emissions rates
-
-
-def scatterPlot(data, xVar, yVar, colVar, colors, saveName, xLims=None, yLims=None):
+def scatterPlot(data, xVar, yVar, colVar, colors, saveName, xFactor=None, xLims=None, yLims=None):
     
     # copy and drop missing values
     data = data.copy()
@@ -168,8 +76,121 @@ def scatterPlot(data, xVar, yVar, colVar, colors, saveName, xLims=None, yLims=No
     os.chdir('..') 
     plt.close()
     
+
+## CEMS vs eGrid and data availability
+
+superCEMS = pd.merge(CEMS, eGrid, how = 'outer', left_on = 'Facility ID (ORISPL)', right_on = 'ORIS')   
+# for 2016, 1215 total facilities listed in CEMS and 1366 listed in eGrid
+# In PJM after retirement cleaning, 181 fossil facilities from CEMS and 1051 in eGrid
+
+## Heat rates
+
+# Note: for comparison, need to load CEMS data with eGridHR=False
+
+# mmBTU = 1 million BTU (1 MMBtu/MWh = 1000 Btu/kWh)
+CEMS.loc[:,['Heat rate (MMBtu/MWh)', 'Plant nominal heat rate (Btu/kWh)'] ]
+
+# MFE
+
+def calcMFE(col1, col2):
+    diffs = col1 - col2
+    diffs = diffs.abs()    
+    sums = (col1 + col2) / 2   
+    MFEs = diffs / sums
+    return MFEs.sum() / MFEs.shape[0]
     
+
+def calcMFB(col1, col2):
+    diffs = col1 - col2
+    sums = (col1 + col2) / 2   
+    MFBs = diffs / sums
+    return MFBs.sum() / MFBs.shape[0]
+    
+# boxplots
+
+CEMS['Heat rate diff'] = CEMS['Heat rate (MMBtu/MWh)'] * 1000 - CEMS['Plant nominal heat rate (Btu/kWh)']
+CEMS['Heat rate diff percent'] = (CEMS['Heat rate (MMBtu/MWh)'] * 1000 - CEMS['Plant nominal heat rate (Btu/kWh)'] ) / CEMS['Plant nominal heat rate (Btu/kWh)'] 
+
+CEMS.boxplot(column='Heat rate diff', by='Fuel', 
+             patch_artist=True)
+             
+plt.title("CEMS heat rate - eGrid heat rate (Btu/kWh)")
+             
+os.chdir(os.getcwd() + '/Analysis')
+plt.savefig("Heat rate comparison.pdf")
+os.chdir('..') 
+plt.close()
+
+
+# test = calcMFE(pd.Series([1,2]), pd.Series([0,3]))
+
+MFE_HR = calcMFE(CEMS['Heat rate (MMBtu/MWh)'] * 1000, CEMS['Plant nominal heat rate (Btu/kWh)'])
+MFB_HR = calcMFB(CEMS['Heat rate (MMBtu/MWh)'] * 1000, CEMS['Plant nominal heat rate (Btu/kWh)'])
+
+# histogram
+diffs = CEMS['Heat rate (MMBtu/MWh)'] * 1000 - CEMS['Plant nominal heat rate (Btu/kWh)']
+num_bins = 5
+n, bins, patches = plt.hist(diffs, num_bins, facecolor='blue', alpha=0.5)
+plt.show()
+
+diffs.describe()
+diffs.quantile(q=[0, 0.25, 0.5, 0.75, 1])
+# percents.quantile(q=[0, 0.25, 0.5, 0.75, 1])
+
+sum(CEMS['Heat rate (MMBtu/MWh)'].isna())
+sum(CEMS['Plant nominal heat rate (Btu/kWh)'].isna())
+
+# extreme values 
+CEMS.loc[CEMS['Heat rate diff'].abs() > 15000,['Plant nameplate capacity (MW)','Max Hourly HI Rate (MMBtu/hr)', 
+                                            'Heat rate (MMBtu/MWh)', 'Plant nominal heat rate (Btu/kWh)']]
+                                            
+CEMS.loc[CEMS['Plant nominal heat rate (Btu/kWh)'] > 100000,:]   
+
+
+# missing values 
+CEMS['Plant nominal heat rate (Btu/kWh)'].isna().sum()
+CEMS.loc[CEMS['Plant nominal heat rate (Btu/kWh)'].isna(), ['Facility Name', 'Fuel',
+                                                            'Plant nominal heat rate (Btu/kWh)']]
+
+
+CEMS.loc[CEMS['Heat rate (MMBtu/MWh)'].isna(),:]
+
+
+
+# scatterplot
+CEMS['eGrid heat rate (MMBtu/MWh)'] = CEMS['Plant nominal heat rate (Btu/kWh)'] / 1000
+CEMS['eGrid heat rate (MMBtu/MWh)']
 fuelColors = {'COAL': 'brown', 'GAS':'orange',  'OIL': 'black', 'BIOMASS': '#00CD00', 'OTHF': 'purple'}
+scatterPlot(data=CEMS, xVar='eGrid heat rate (MMBtu/MWh)',
+                       yVar='Heat rate (MMBtu/MWh)', colVar='Fuel',
+                       colors = fuelColors, saveName = 'Heat rate scatterplot')
+
+# correlation
+#corData = CEMS[['eGrid heat rate (MMBtu/MWh)', 'Heat rate (MMBtu/MWh)']]
+#corData = corData.astype({"eGrid heat rate (MMBtu/MWh)": "int64"})
+#corData.corr()
+
+## Total gen. capacity
+CEMS['Plant nameplate capacity (MW)'].sum()
+# PJM total installed capacity of 182,410 MW January 2017
+# http://www.pjm.com/-/media/committees-groups/committees/mc/20180322-state-of-market-report-review/20180322-2017-state-of-the-market-report-review.ashx
+
+eGrid.groupby(['Fuel'])['Plant nameplate capacity (MW)'].sum()
+CEMS.groupby(['Fuel'])['Plant nameplate capacity (MW)'].sum()
+# low on hydro, wind, and oil; otherwise eGrid estimates tend to be high (strangely high on solar?)
+
+# Large number of plants within PJM from eGrid that are not listed in CEMS
+# possible reasons:
+# non-fossil (i.e. non-emitting) plants
+# CEMS only includes plants > 25
+# plants may have closed between 2016 and 2017 
+
+
+
+## Emissions rates
+
+
+    
               
 scatterPlot(data=CEMS, xVar='eGrid annual SO2 rate (ton/MWh)',
                        yVar='SO2 emissions rate (tons/MWh)', colVar='Fuel',
@@ -194,9 +215,3 @@ outliers[['State', 'Facility Name', 'Fuel', 'SO2 emissions rate (tons/MWh)', 'eG
                                             'CO2 emissions rate (tons/MWh)', 'eGrid annual CO2 rate (ton/MWh)', 
                                             'NOx emissions rate (tons/MWh)', 'eGrid annual NOx rate (ton/MWh)']]
                                             
-# scatterplot (load below)
-CEMS['eGrid heat rate (MMBtu/MWh)'] = CEMS['Plant nominal heat rate (Btu/kWh)'] / 1000
-
-scatterPlot(data=CEMS, xVar='eGrid heat rate (MMBtu/MWh)',
-                       yVar='Heat rate (MMBtu/MWh)', colVar='Fuel',
-                       colors = fuelColors, saveName = 'Heat rate scatterplot')
